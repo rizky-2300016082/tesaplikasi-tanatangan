@@ -1,78 +1,50 @@
+// src/pages/EditDocumentPage.jsx
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
-import { toast } from 'sonner';
-
-import { Worker, Viewer, defaultLayoutPlugin } from '@react-pdf-viewer/core';
+import { Worker } from '@react-pdf-viewer/core';
+import { Viewer } from '@react-pdf-viewer/core';
 import '@react-pdf-viewer/core/lib/styles/index.css';
+import { defaultLayoutPlugin } from '@react-pdf-viewer/default-layout';
 import '@react-pdf-viewer/default-layout/lib/styles/index.css';
-
-import { useDrop } from 'react-dnd';
 import SignatureBox from '../components/SignatureBox';
-
-const ItemTypes = { BOX: 'box' };
 
 function EditDocumentPage() {
   const { documentId } = useParams();
   const [pdfUrl, setPdfUrl] = useState(null);
-  const [documentData, setDocumentData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [boxPosition, setBoxPosition] = useState({ top: 100, left: 100 });
+  const [signaturePos, setSignaturePos] = useState({ top: 200, left: 100 });
+  const [saved, setSaved] = useState(false);
 
   const defaultLayoutPluginInstance = defaultLayoutPlugin();
-
-  const [, drop] = useDrop(() => ({
-    accept: ItemTypes.BOX,
-    drop(item, monitor) {
-      const delta = monitor.getDifferenceFromInitialOffset();
-      const left = Math.round(boxPosition.left + delta.x);
-      const top = Math.round(boxPosition.top + delta.y);
-      setBoxPosition({ top, left });
-      return undefined;
-    },
-  }), [boxPosition]);
-
-  const handleSavePosition = async () => {
-    setIsSaving(true);
-    try {
-      const { error } = await supabase
-        .from('documents')
-        .update({ signature_coordinates: boxPosition })
-        .eq('id', documentId);
-      if (error) throw error;
-      toast.success('Posisi tanda tangan berhasil disimpan!');
-    } catch (error) {
-      toast.error('Gagal menyimpan posisi: ' + error.message);
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
   useEffect(() => {
     const fetchDocumentDetails = async () => {
       try {
         setLoading(true);
         setError(null);
+
         const { data: docData, error: docError } = await supabase
           .from('documents')
-          .select('*, signature_coordinates')
+          .select('*')
           .eq('id', documentId)
           .single();
-        if (docError) throw new Error(`Gagal mengambil data dokumen: ${docError.message}`);
 
-        setDocumentData(docData);
-        if (docData.signature_coordinates) {
-          setBoxPosition(docData.signature_coordinates);
-        }
+        if (docError) throw new Error(`Gagal mengambil data dokumen: ${docError.message}`);
 
         if (docData.document_path) {
           const { data: urlData, error: urlError } = await supabase.storage
             .from('documents')
             .createSignedUrl(docData.document_path, 300);
+
           if (urlError) throw new Error(`Gagal membuat URL aman: ${urlError.message}`);
+
           setPdfUrl(urlData.signedUrl);
+
+          if (docData.signature_coordinates) {
+            setSignaturePos(docData.signature_coordinates);
+          }
         } else {
           throw new Error("Path dokumen tidak ditemukan di database.");
         }
@@ -83,30 +55,53 @@ function EditDocumentPage() {
         setLoading(false);
       }
     };
+
     if (documentId) fetchDocumentDetails();
   }, [documentId]);
 
+  const handleSave = async () => {
+    const { error } = await supabase
+      .from('documents')
+      .update({ signature_coordinates: signaturePos })
+      .eq('id', documentId);
+
+    if (error) {
+      alert('Gagal menyimpan koordinat: ' + error.message);
+    } else {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
+  };
+
   if (loading) return <div style={{ padding: '2rem' }}>Memuat data...</div>;
-  if (error) return <div style={{ padding: '2rem', color: 'red' }}><h1>Proses Gagal</h1><p>{error.message}</p></div>;
+  if (error) return <div style={{ padding: '2rem', color: 'red' }}><h1>Proses Gagal</h1><p>{error}</p></div>;
   if (!pdfUrl) return <div style={{ padding: '2rem' }}>Memuat pratinjau PDF...</div>;
 
   return (
     <div style={{ padding: '2rem' }}>
       <Link to="/dashboard">&larr; Kembali ke Dashboard</Link>
-      <h1>Editor Posisi Tanda Tangan</h1>
-      <p>Geser kotak merah ke posisi di mana Anda ingin penerima menandatangani.</p>
-      <button onClick={handleSavePosition} disabled={isSaving}>
-        {isSaving ? 'Menyimpan...' : 'Simpan Posisi TTD'}
-      </button>
-      <hr style={{ margin: '1rem 0' }} />
-      <div ref={drop} style={{ position: 'relative', width: 'fit-content', margin: 'auto' }}>
-        <SignatureBox top={boxPosition.top} left={boxPosition.left} />
-        <div style={{ height: '800px', border: '1px solid black' }}>
-          <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
-            <Viewer fileUrl={pdfUrl} plugins={[defaultLayoutPluginInstance]} />
-          </Worker>
-        </div>
+      <h1>Editor Dokumen</h1>
+      <hr />
+
+      <div style={{ position: 'relative', height: '800px', border: '1px solid #ccc', overflow: 'auto' }}>
+        <Worker workerUrl="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js">
+          <Viewer
+            fileUrl={pdfUrl}
+            plugins={[defaultLayoutPluginInstance]}
+          />
+        </Worker>
+
+        <SignatureBox
+          top={signaturePos.top}
+          left={signaturePos.left}
+          onMove={(newPos) => setSignaturePos(newPos)}
+        />
       </div>
+
+      <button onClick={handleSave} style={{ marginTop: '1rem' }}>
+        Simpan Posisi
+      </button>
+      {saved && <p style={{ color: 'green' }}>Posisi berhasil disimpan!</p>}
     </div>
   );
 }

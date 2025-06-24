@@ -1,17 +1,33 @@
 // src/components/SignatureBox.jsx
 import { useDrag } from 'react-dnd';
+import { useEffect, useRef } from 'react';
 
-const SignatureBox = ({ top, left }) => {
+const SignatureBox = ({ top, left, onMove }) => {
+  const ref = useRef(null);
+
   const [{ isDragging }, drag] = useDrag(() => ({
-    type: 'box', // Tipe item, kita sederhanakan
+    type: 'box',
+    item: { top, left },
     collect: (monitor) => ({
-      isDragging: !!monitor.isDragging(),
+      isDragging: monitor.isDragging(),
     }),
-  }), []);
+    end: (item, monitor) => {
+      if (!monitor.didDrop()) {
+        const offset = monitor.getDifferenceFromInitialOffset();
+        if (offset) {
+          const newTop = top + offset.y;
+          const newLeft = left + offset.x;
+          onMove?.({ top: newTop, left: newLeft });
+        }
+      }
+    }
+  }), [top, left]);
+
+  drag(ref);
 
   return (
     <div
-      ref={drag}
+      ref={ref}
       style={{
         position: 'absolute',
         top: `${top}px`,
@@ -22,7 +38,7 @@ const SignatureBox = ({ top, left }) => {
         backgroundColor: 'rgba(231, 76, 60, 0.1)',
         cursor: 'move',
         opacity: isDragging ? 0.4 : 1,
-        zIndex: 100, // Pastikan selalu di atas
+        zIndex: 100,
       }}
     />
   );
